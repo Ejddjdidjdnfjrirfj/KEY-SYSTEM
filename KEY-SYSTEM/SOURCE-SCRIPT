@@ -76,7 +76,7 @@ function Lib.CreateUI(Config)
     local Redeem = Instance.new("TextButton")
     local UICorner_3 = Instance.new("UICorner")
     local UICorner_4 = Instance.new("UICorner")
-    local UICorner_5 = Instance.new("UIcorner")
+    local UICorner_5 = Instance.new("UICorner")
     
     --Properties:
 
@@ -149,9 +149,9 @@ function Lib.CreateUI(Config)
     Exit.TextSize = 14.000
     Exit.TextTransparency = 0.700
     Exit.TextWrapped = true
-    
-    UICorner_5.Parent = Exit
 
+    UICorner_5.Parent = Exit
+    
     Redeem.Name = GenRandomString()
     Redeem.Parent = Frame2
     Redeem.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
