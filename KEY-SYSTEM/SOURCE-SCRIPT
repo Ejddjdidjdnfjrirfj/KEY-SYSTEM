@@ -1,0 +1,64 @@
+local KeyLibrary = loadstring(game:HttpGet("https://pastebin.com/raw/vff1bQ9F"))()
+local KeySysWindow = KeyLibrary.CreateLib("KEY SYSTEM", "BloodTheme")
+local Player = game.Players.LocalPlayer
+local NotificationHolder = loadstring(game:HttpGet("https://raw.githubusercontent.com/BocusLuke/UI/main/STX/Module.Lua"))()
+local Notification = loadstring(game:HttpGet("https://raw.githubusercontent.com/Ejddjdidjdnfjrirfj/Notification/main/IDK"))()
+
+Notification:Notify(
+    {Title = "Welcome, "..Player.Name..".am Key System", Description = "Your must be Enter Key for hub"},
+    {OutlineColor = Color3.fromRGB(255, 5, 5),Time = 5, Type = "default"}
+)
+
+_G.Key = "4828db90c6234de6a791bc6b190f8e5a"
+_G.KeyInput = "string"
+
+function Source()
+    print("Source Script")
+
+end
+
+function CorrectKey()
+    print("Key is correct!")
+    Notification:Notify(
+    {Title = "KEY SYSTEM", Description = "Key is correct!"},
+    {OutlineColor = Color3.fromRGB(255, 5, 5),Time = 5, Type = "default"}
+)
+wait(2)
+KeyLibrary:ToggleUI()
+wait(2)
+Source()
+end
+
+function InCorrectKey()
+    print("Key is Incorrect! Please Try Key aging!")
+    Notification:Notify(
+    {Title = "KEY SYSTEM", Description = "Key is Incorrect! Please Try Key aging!"},
+    {OutlineColor = Color3.fromRGB(255, 5, 5),Time = 5, Type = "default"}
+)
+end
+
+local MainTab = KeySysWindow:NewTab("Main")
+local KeyTab = KeySysWindow:NewTab("KEY SYSTEM")
+
+local UpdateSection = MainTab:NewSection("Update Logs")
+local KeySection = KeyTab:NewSection("Enter Key")
+
+UpdateSection:NewLabel("•New Update Script")
+UpdateSection:NewLabel("•New Update Key")
+UpdateSection:NewLabel("•New Update Key System Gui")
+
+KeySection:NewTextBox("Enter Key", "TextboxInfo", function(Value)
+  _G.KeyInput = Value
+end)
+
+KeySection:NewButton("Check Key", "ButtonInfo", function()
+    if _G.KeyInput == _G.Key then
+        CorrectKey()
+        else
+            InCorrectKey()
+        end
+end)
+
+KeySection:NewButton("Get key!", "ButtonInfo", function()
+    https://648389b1-2140-4f13-b0ed-7088104a36ed.pyscriptapps.com/key-system-checkpoint-1/latest/
+end)
