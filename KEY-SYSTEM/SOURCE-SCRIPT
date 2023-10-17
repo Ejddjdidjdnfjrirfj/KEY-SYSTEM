@@ -17,52 +17,69 @@ function GenRandomString()
 end
 
 function dragify(Frame) -- credits: bloodball on github
-	dragToggle = nil
-	dragSpeed = 0.25
-	dragInput = nil
-	dragStart = nil
-	dragPos = nil
-	function updateInput(input)
-		Delta = input.Position - dragStart
-		Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + Delta.X, startPos.Y.Scale, startPos.Y.Offset + Delta.Y)
-		game:GetService("TweenService"):Create(Frame, TweenInfo.new(.25), {
-			Position = Position
-		}):Play()
-	end
-	Frame.InputBegan:Connect(function(input)
-		if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
-			dragToggle = true
-			dragStart = input.Position
-			startPos = Frame.Position
-			input.Changed:Connect(function()
-				if (input.UserInputState == Enum.UserInputState.End) then
-					dragToggle = false
-				end
-			end)
-		end
-	end)
-	Frame.InputChanged:Connect(function(input)
-		if (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-			dragInput = input
-		end
-	end)
-	game:GetService("UserInputService").InputChanged:Connect(function(input)
-		if (input == dragInput and dragToggle) then
-			updateInput(input)
-		end
-	end)
+  dragToggle = nil
+  dragSpeed = 0.25
+  dragInput = nil
+  dragStart = nil
+  dragPos = nil
+  function updateInput(input)
+    Delta = input.Position - dragStart
+    Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + Delta.X, startPos.Y.Scale, startPos.Y.Offset + Delta.Y)
+    game:GetService("TweenService"):Create(Frame, TweenInfo.new(.25), {
+      Position = Position
+    }):Play()
+  end
+  Frame.InputBegan:Connect(function(input)
+    if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+      dragToggle = true
+      dragStart = input.Position
+      startPos = Frame.Position
+      input.Changed:Connect(function()
+        if (input.UserInputState == Enum.UserInputState.End) then
+          dragToggle = false
+        end
+      end)
+    end
+  end)
+  Frame.InputChanged:Connect(function(input)
+    if (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+      dragInput = input
+    end
+  end)
+  game:GetService("UserInputService").InputChanged:Connect(function(input)
+    if (input == dragInput and dragToggle) then
+      updateInput(input)
+    end
+  end)
 end
 
 function Lib.CreateUI(Config)
     local Title = Config.Title or "Key System"
     local KeyShit = Config.Key or nil
     local KeyUrl = Config.KeyUrl or nil
+    local NotificationHolder = loadstring(game:HttpGet("https://raw.githubusercontent.com/BocusLuke/UI/main/STX/Module.Lua"))()
+    local Notification = loadstring(game:HttpGet("https://raw.githubusercontent.com/Ejddjdidjdnfjrirfj/Notification/main/IDK"))()
 
     local LoadFunction = Config.LoadFunction or Config.Load or Config.Callback or function() return warn("Callback not given") end
 
     if KeyShit == nil then
         return error("Key not given (missing \"Key\")")
     end
+    
+    function CorrectKey​Source()
+        Notification:Notify(
+    {Title = "KEY SYSTEM", Description = "Key is Correct! Please wait a sec for Script Hub"},
+    {OutlineColor = Color3.fromRGB(255, 5, 5),Time = 5, Type = "default"}
+)
+    end
+    
+    function InCorrectKey()
+        Notification:Notify(
+    {Title = "KEY SYSTEM", Description = "Key is Incorrect! Please Try Key aging!"},
+    {OutlineColor = Color3.fromRGB(255, 5, 5),Time = 5, Type = "default"}
+)
+    end
+    
     -- Instances:
 
     local KeySystem = Instance.new("ScreenGui")
@@ -116,7 +133,7 @@ function Lib.CreateUI(Config)
         WebsiteLabel.Position = UDim2.new(0.253369272, 0, 0.200000003, 0)
         WebsiteLabel.Size = UDim2.new(0, 181, 0, 50)
         WebsiteLabel.Font = Enum.Font.SourceSans
-        WebsiteLabel.Text = tostring(KeyUrl)
+        WebsiteLabel.Text = ""
         WebsiteLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
         WebsiteLabel.TextSize = 14.000
         WebsiteLabel.TextTransparency = 0.700
@@ -159,7 +176,7 @@ function Lib.CreateUI(Config)
     Redeem.Position = UDim2.new(0.202156335, 0, 0.69206351, 0)
     Redeem.Size = UDim2.new(0, 219, 0, 30)
     Redeem.Font = Enum.Font.Gotham
-    Redeem.Text = "Redeem"
+    Redeem.Text = "Enter Key"
     Redeem.TextColor3 = Color3.fromRGB(255, 255, 255)
     Redeem.TextScaled = true
     Redeem.TextSize = 14.000
@@ -177,7 +194,7 @@ function Lib.CreateUI(Config)
         CopyLink.Position = UDim2.new(0.202156335, 0, 0.812698424, 0)
         CopyLink.Size = UDim2.new(0, 219, 0, 30)
         CopyLink.Font = Enum.Font.Gotham
-        CopyLink.Text = "Copy Link"
+        CopyLink.Text = "Get Key"
         CopyLink.TextColor3 = Color3.fromRGB(255, 255, 255)
         CopyLink.TextScaled = true
         CopyLink.TextSize = 14.000
@@ -194,8 +211,11 @@ function Lib.CreateUI(Config)
     Redeem.MouseButton1Click:Connect(function()
         if Key.Text == KeyShit then
             LoadFunction()
+            CorrectKey​Source()
             task.wait()
             KeySystem:Destroy()
+        else
+            InCorrectKey()
         end
     end)
 
