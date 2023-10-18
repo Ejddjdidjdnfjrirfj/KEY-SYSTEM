@@ -1,230 +1,418 @@
-local ScreenGui = Instance.new("ScreenGui")
-local Frame = Instance.new("Frame")
+--[[
+ .____                  ________ ___.    _____                           __                
+ |    |    __ _______   \_____  \\_ |___/ ____\_ __  ______ ____ _____ _/  |_  ___________ 
+ |    |   |  |  \__  \   /   |   \| __ \   __\  |  \/  ___// ___\\__  \\   __\/  _ \_  __ \
+ |    |___|  |  // __ \_/    |    \ \_\ \  | |  |  /\___ \\  \___ / __ \|  | (  <_> )  | \/
+ |_______ \____/(____  /\_______  /___  /__| |____//____  >\___  >____  /__|  \____/|__|   
+         \/          \/         \/    \/                \/     \/     \/                   
+          \_Welcome to LuaObfuscator.com   (Alpha 0.9.16) ~  Much Love, Ferib 
 
---Property: 
+]]--
 
-ScreenGui.Parent = game.CoreGui
-
-local Lib = {}
-
-function GenRandomString()
-    local length = math.random(10,20)
-    local array = {}
-    for i = 1, length do
-        array[i] = string.char(math.random(32, 126))
-    end
-    return table.concat(array)
+local StrToNumber = tonumber;
+local Byte = string.byte;
+local Char = string.char;
+local Sub = string.sub;
+local Subg = string.gsub;
+local Rep = string.rep;
+local Concat = table.concat;
+local Insert = table.insert;
+local LDExp = math.ldexp;
+local GetFEnv = getfenv or function()
+	return _ENV;
+end;
+local Setmetatable = setmetatable;
+local PCall = pcall;
+local Select = select;
+local Unpack = unpack or table.unpack;
+local ToNumber = tonumber;
+local function VMCall(ByteString, vmenv, ...)
+	local DIP = 1;
+	local repeatNext;
+	ByteString = Subg(Sub(ByteString, 5), "..", function(byte)
+		if (Byte(byte, 2) == 79) then
+			repeatNext = StrToNumber(Sub(byte, 1, 1));
+			return "";
+		else
+			local a = Char(StrToNumber(byte, 16));
+			if repeatNext then
+				local b = Rep(a, repeatNext);
+				repeatNext = nil;
+				return b;
+			else
+				return a;
+			end
+		end
+	end);
+	local function gBit(Bit, Start, End)
+		if End then
+			local Res = (Bit / (2 ^ (Start - 1))) % (2 ^ (((End - 1) - (Start - 1)) + 1));
+			return Res - (Res % 1);
+		else
+			local Plc = 2 ^ (Start - 1);
+			return (((Bit % (Plc + Plc)) >= Plc) and 1) or 0;
+		end
+	end
+	local function gBits8()
+		local a = Byte(ByteString, DIP, DIP);
+		DIP = DIP + 1;
+		return a;
+	end
+	local function gBits16()
+		local a, b = Byte(ByteString, DIP, DIP + 2);
+		DIP = DIP + 2;
+		return (b * 256) + a;
+	end
+	local function gBits32()
+		local a, b, c, d = Byte(ByteString, DIP, DIP + 3);
+		DIP = DIP + 4;
+		return (d * 16777216) + (c * 65536) + (b * 256) + a;
+	end
+	local function gFloat()
+		local Left = gBits32();
+		local Right = gBits32();
+		local IsNormal = 1;
+		local Mantissa = (gBit(Right, 1, 20) * (2 ^ 32)) + Left;
+		local Exponent = gBit(Right, 21, 31);
+		local Sign = ((gBit(Right, 32) == 1) and -1) or 1;
+		if (Exponent == 0) then
+			if (Mantissa == 0) then
+				return Sign * 0;
+			else
+				Exponent = 1;
+				IsNormal = 0;
+			end
+		elseif (Exponent == 2047) then
+			return ((Mantissa == 0) and (Sign * (1 / 0))) or (Sign * NaN);
+		end
+		return LDExp(Sign, Exponent - 1023) * (IsNormal + (Mantissa / (2 ^ 52)));
+	end
+	local function gString(Len)
+		local Str;
+		if not Len then
+			Len = gBits32();
+			if (Len == 0) then
+				return "";
+			end
+		end
+		Str = Sub(ByteString, DIP, (DIP + Len) - 1);
+		DIP = DIP + Len;
+		local FStr = {};
+		for Idx = 1, #Str do
+			FStr[Idx] = Char(Byte(Sub(Str, Idx, Idx)));
+		end
+		return Concat(FStr);
+	end
+	local gInt = gBits32;
+	local function _R(...)
+		return {...}, Select("#", ...);
+	end
+	local function Deserialize()
+		local Instrs = {};
+		local Functions = {};
+		local Lines = {};
+		local Chunk = {Instrs,Functions,nil,Lines};
+		local ConstCount = gBits32();
+		local Consts = {};
+		for Idx = 1, ConstCount do
+			local Type = gBits8();
+			local Cons;
+			if (Type == 1) then
+				Cons = gBits8() ~= 0;
+			elseif (Type == 2) then
+				Cons = gFloat();
+			elseif (Type == 3) then
+				Cons = gString();
+			end
+			Consts[Idx] = Cons;
+		end
+		Chunk[3] = gBits8();
+		for Idx = 1, gBits32() do
+			local Descriptor = gBits8();
+			if (gBit(Descriptor, 1, 1) == 0) then
+				local Type = gBit(Descriptor, 2, 3);
+				local Mask = gBit(Descriptor, 4, 6);
+				local Inst = {gBits16(),gBits16(),nil,nil};
+				if (Type == 0) then
+					Inst[3] = gBits16();
+					Inst[4] = gBits16();
+				elseif (Type == 1) then
+					Inst[3] = gBits32();
+				elseif (Type == 2) then
+					Inst[3] = gBits32() - (2 ^ 16);
+				elseif (Type == 3) then
+					Inst[3] = gBits32() - (2 ^ 16);
+					Inst[4] = gBits16();
+				end
+				if (gBit(Mask, 1, 1) == 1) then
+					Inst[2] = Consts[Inst[2]];
+				end
+				if (gBit(Mask, 2, 2) == 1) then
+					Inst[3] = Consts[Inst[3]];
+				end
+				if (gBit(Mask, 3, 3) == 1) then
+					Inst[4] = Consts[Inst[4]];
+				end
+				Instrs[Idx] = Inst;
+			end
+		end
+		for Idx = 1, gBits32() do
+			Functions[Idx - 1] = Deserialize();
+		end
+		return Chunk;
+	end
+	local function Wrap(Chunk, Upvalues, Env)
+		local Instr = Chunk[1];
+		local Proto = Chunk[2];
+		local Params = Chunk[3];
+		return function(...)
+			local Instr = Instr;
+			local Proto = Proto;
+			local Params = Params;
+			local _R = _R;
+			local VIP = 1;
+			local Top = -1;
+			local Vararg = {};
+			local Args = {...};
+			local PCount = Select("#", ...) - 1;
+			local Lupvals = {};
+			local Stk = {};
+			for Idx = 0, PCount do
+				if (Idx >= Params) then
+					Vararg[Idx - Params] = Args[Idx + 1];
+				else
+					Stk[Idx] = Args[Idx + 1];
+				end
+			end
+			local Varargsz = (PCount - Params) + 1;
+			local Inst;
+			local Enum;
+			while true do
+				Inst = Instr[VIP];
+				Enum = Inst[1];
+				if (Enum <= 21) then
+					if (Enum <= 10) then
+						if (Enum <= 4) then
+							if (Enum <= 1) then
+								if (Enum == 0) then
+									Stk[Inst[2]] = {};
+								else
+									Stk[Inst[2]] = Stk[Inst[3]][Inst[4]];
+								end
+							elseif (Enum <= 2) then
+								if (Inst[2] < Inst[4]) then
+									VIP = VIP + 1;
+								else
+									VIP = Inst[3];
+								end
+							elseif (Enum > 3) then
+								Stk[Inst[2]] = Inst[3];
+							else
+								Stk[Inst[2]] = {};
+							end
+						elseif (Enum <= 7) then
+							if (Enum <= 5) then
+								Stk[Inst[2]]();
+							elseif (Enum > 6) then
+								if (Stk[Inst[2]] ~= Inst[4]) then
+									VIP = VIP + 1;
+								else
+									VIP = Inst[3];
+								end
+							else
+								local A = Inst[2];
+								Stk[A] = Stk[A](Unpack(Stk, A + 1, Top));
+							end
+						elseif (Enum <= 8) then
+							local A = Inst[2];
+							Stk[A](Stk[A + 1]);
+						elseif (Enum == 9) then
+							local A = Inst[2];
+							local Results, Limit = _R(Stk[A](Unpack(Stk, A + 1, Inst[3])));
+							Top = (Limit + A) - 1;
+							local Edx = 0;
+							for Idx = A, Top do
+								Edx = Edx + 1;
+								Stk[Idx] = Results[Edx];
+							end
+						else
+							VIP = Inst[3];
+						end
+					elseif (Enum <= 15) then
+						if (Enum <= 12) then
+							if (Enum == 11) then
+								local A = Inst[2];
+								local B = Stk[Inst[3]];
+								Stk[A + 1] = B;
+								Stk[A] = B[Inst[4]];
+							else
+								local A = Inst[2];
+								Stk[A](Unpack(Stk, A + 1, Inst[3]));
+							end
+						elseif (Enum <= 13) then
+							Stk[Inst[2]]();
+						elseif (Enum == 14) then
+							local A = Inst[2];
+							Stk[A] = Stk[A](Unpack(Stk, A + 1, Inst[3]));
+						else
+							local A = Inst[2];
+							Stk[A](Stk[A + 1]);
+						end
+					elseif (Enum <= 18) then
+						if (Enum <= 16) then
+							local A = Inst[2];
+							Stk[A] = Stk[A]();
+						elseif (Enum > 17) then
+							Stk[Inst[2]][Inst[3]] = Stk[Inst[4]];
+						else
+							Stk[Inst[2]] = Stk[Inst[3]];
+						end
+					elseif (Enum <= 19) then
+						local NewProto = Proto[Inst[3]];
+						local NewUvals;
+						local Indexes = {};
+						NewUvals = Setmetatable({}, {__index=function(_, Key)
+							local Val = Indexes[Key];
+							return Val[1][Val[2]];
+						end,__newindex=function(_, Key, Value)
+							local Val = Indexes[Key];
+							Val[1][Val[2]] = Value;
+						end});
+						for Idx = 1, Inst[4] do
+							VIP = VIP + 1;
+							local Mvm = Instr[VIP];
+							if (Mvm[1] == 17) then
+								Indexes[Idx - 1] = {Stk,Mvm[3]};
+							else
+								Indexes[Idx - 1] = {Upvalues,Mvm[3]};
+							end
+							Lupvals[#Lupvals + 1] = Indexes;
+						end
+						Stk[Inst[2]] = Wrap(NewProto, NewUvals, Env);
+					elseif (Enum == 20) then
+						Stk[Inst[2]] = Stk[Inst[3]][Inst[4]];
+					else
+						Stk[Inst[2]] = Env[Inst[3]];
+					end
+				elseif (Enum <= 32) then
+					if (Enum <= 26) then
+						if (Enum <= 23) then
+							if (Enum > 22) then
+								local A = Inst[2];
+								local B = Stk[Inst[3]];
+								Stk[A + 1] = B;
+								Stk[A] = B[Inst[4]];
+							else
+								Stk[Inst[2]] = Upvalues[Inst[3]];
+							end
+						elseif (Enum <= 24) then
+							Stk[Inst[2]][Inst[3]] = Inst[4];
+						elseif (Enum == 25) then
+							if (Stk[Inst[2]] ~= Inst[4]) then
+								VIP = VIP + 1;
+							else
+								VIP = Inst[3];
+							end
+						else
+							local A = Inst[2];
+							Stk[A] = Stk[A](Stk[A + 1]);
+						end
+					elseif (Enum <= 29) then
+						if (Enum <= 27) then
+							local NewProto = Proto[Inst[3]];
+							local NewUvals;
+							local Indexes = {};
+							NewUvals = Setmetatable({}, {__index=function(_, Key)
+								local Val = Indexes[Key];
+								return Val[1][Val[2]];
+							end,__newindex=function(_, Key, Value)
+								local Val = Indexes[Key];
+								Val[1][Val[2]] = Value;
+							end});
+							for Idx = 1, Inst[4] do
+								VIP = VIP + 1;
+								local Mvm = Instr[VIP];
+								if (Mvm[1] == 17) then
+									Indexes[Idx - 1] = {Stk,Mvm[3]};
+								else
+									Indexes[Idx - 1] = {Upvalues,Mvm[3]};
+								end
+								Lupvals[#Lupvals + 1] = Indexes;
+							end
+							Stk[Inst[2]] = Wrap(NewProto, NewUvals, Env);
+						elseif (Enum > 28) then
+							local A = Inst[2];
+							Stk[A] = Stk[A](Unpack(Stk, A + 1, Top));
+						else
+							Stk[Inst[2]] = Upvalues[Inst[3]];
+						end
+					elseif (Enum <= 30) then
+						VIP = Inst[3];
+					elseif (Enum == 31) then
+						if (Inst[2] <= Inst[4]) then
+							VIP = VIP + 1;
+						else
+							VIP = Inst[3];
+						end
+					else
+						Stk[Inst[2]][Inst[3]] = Inst[4];
+					end
+				elseif (Enum <= 38) then
+					if (Enum <= 35) then
+						if (Enum <= 33) then
+							do
+								return;
+							end
+						elseif (Enum == 34) then
+							Stk[Inst[2]] = Inst[3];
+						else
+							local A = Inst[2];
+							Stk[A] = Stk[A](Unpack(Stk, A + 1, Inst[3]));
+						end
+					elseif (Enum <= 36) then
+						local A = Inst[2];
+						Stk[A] = Stk[A]();
+					elseif (Enum == 37) then
+						if (Inst[2] < Inst[4]) then
+							VIP = VIP + 1;
+						else
+							VIP = Inst[3];
+						end
+					elseif (Inst[2] <= Inst[4]) then
+						VIP = VIP + 1;
+					else
+						VIP = Inst[3];
+					end
+				elseif (Enum <= 41) then
+					if (Enum <= 39) then
+						Stk[Inst[2]] = Env[Inst[3]];
+					elseif (Enum > 40) then
+						local A = Inst[2];
+						Stk[A] = Stk[A](Stk[A + 1]);
+					else
+						local A = Inst[2];
+						Stk[A](Unpack(Stk, A + 1, Inst[3]));
+					end
+				elseif (Enum <= 42) then
+					do
+						return;
+					end
+				elseif (Enum == 43) then
+					Stk[Inst[2]][Inst[3]] = Stk[Inst[4]];
+				else
+					local A = Inst[2];
+					local Results, Limit = _R(Stk[A](Unpack(Stk, A + 1, Inst[3])));
+					Top = (Limit + A) - 1;
+					local Edx = 0;
+					for Idx = A, Top do
+						Edx = Edx + 1;
+						Stk[Idx] = Results[Edx];
+					end
+				end
+				VIP = VIP + 1;
+			end
+		end;
+	end
+	return Wrap(Deserialize(), {}, vmenv)(...);
 end
-
-function dragify(Frame) -- credits: bloodball on github
-  dragToggle = nil
-  dragSpeed = 0.25
-  dragInput = nil
-  dragStart = nil
-  dragPos = nil
-  function updateInput(input)
-    Delta = input.Position - dragStart
-    Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + Delta.X, startPos.Y.Scale, startPos.Y.Offset + Delta.Y)
-    game:GetService("TweenService"):Create(Frame, TweenInfo.new(.25), {
-      Position = Position
-    }):Play()
-  end
-  Frame.InputBegan:Connect(function(input)
-    if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
-      dragToggle = true
-      dragStart = input.Position
-      startPos = Frame.Position
-      input.Changed:Connect(function()
-        if (input.UserInputState == Enum.UserInputState.End) then
-          dragToggle = false
-        end
-      end)
-    end
-  end)
-  Frame.InputChanged:Connect(function(input)
-    if (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-      dragInput = input
-    end
-  end)
-  game:GetService("UserInputService").InputChanged:Connect(function(input)
-    if (input == dragInput and dragToggle) then
-      updateInput(input)
-    end
-  end)
-end
-
-function Lib.CreateUI(Config)
-    local Title = Config.Title or "Key System"
-    local KeyShit = Config.Key or nil
-    local KeyUrl = Config.KeyUrl or nil
-    local NotificationHolder = loadstring(game:HttpGet("https://raw.githubusercontent.com/BocusLuke/UI/main/STX/Module.Lua"))()
-    local Notification = loadstring(game:HttpGet("https://raw.githubusercontent.com/Ejddjdidjdnfjrirfj/Notification/main/IDK"))()
-
-    local LoadFunction = Config.LoadFunction or Config.Load or Config.Callback or function() return warn("Callback not given") end
-
-    if KeyShit == nil then
-        return error("Key not given (missing \"Key\")")
-    end
-    
-    function CorrectKey​Source()
-        Notification:Notify(
-    {Title = "KEY SYSTEM", Description = "Key is Correct! Please wait a sec for Script Hub"},
-    {OutlineColor = Color3.fromRGB(255, 5, 5),Time = 5, Type = "default"}
-)
-    end
-    
-    function InCorrectKey()
-        Notification:Notify(
-    {Title = "KEY SYSTEM", Description = "Key is Incorrect! Please Try Key aging!"},
-    {OutlineColor = Color3.fromRGB(255, 5, 5),Time = 5, Type = "default"}
-)
-    end
-    
-    -- Instances:
-
-    local KeySystem = Instance.new("ScreenGui")
-    local Frame2 = Instance.new("Frame")
-    local UICorner = Instance.new("UICorner")
-    local Key = Instance.new("TextBox")
-    local UICorner_2 = Instance.new("UICorner")
-    local WebsiteLabel = Instance.new("TextLabel")
-    local MainLabel = Instance.new("TextLabel")
-    local Exit = Instance.new("TextButton")
-    local Redeem = Instance.new("TextButton")
-    local UICorner_3 = Instance.new("UICorner")
-    local UICorner_4 = Instance.new("UICorner")
-    local UICorner_5 = Instance.new("UICorner")
-    
-    --Properties:
-
-    KeySystem.Name = GenRandomString()
-    KeySystem.Parent = game:GetService("CoreGui")
-    KeySystem.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
-    Frame2.Name = GenRandomString()
-    Frame2.Parent = KeySystem
-    Frame2.BackgroundColor3 = Color3.fromRGB(33, 33, 33)
-    Frame2.Position = UDim2.new(0.330283642, 0, 0.235785931, 0)
-    Frame2.Size = UDim2.new(0, 371, 0, 315)
-
-    UICorner.Parent = Frame2
-
-    Key.Name = GenRandomString()
-    Key.Parent = Frame2
-    Key.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-    Key.BorderSizePixel = 0
-    Key.Position = UDim2.new(0.0269541778, 0, 0.412263513, 0)
-    Key.Size = UDim2.new(0, 350, 0, 55)
-    Key.Font = Enum.Font.SourceSans
-    Key.Text = "Key Here!"
-    Key.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Key.TextSize = 14.000
-    Key.TextTransparency = 0.500
-    Key.TextWrapped = true
-
-    UICorner_2.Parent = Key
-
-    if KeyUrl then
-        local WebsiteLabel = Instance.new("TextLabel")
-        WebsiteLabel.Name = "WebsiteLabel"
-        WebsiteLabel.Parent = Frame2
-        WebsiteLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        WebsiteLabel.BackgroundTransparency = 1.000
-        WebsiteLabel.Position = UDim2.new(0.253369272, 0, 0.200000003, 0)
-        WebsiteLabel.Size = UDim2.new(0, 181, 0, 50)
-        WebsiteLabel.Font = Enum.Font.SourceSans
-        WebsiteLabel.Text = ""
-        WebsiteLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-        WebsiteLabel.TextSize = 14.000
-        WebsiteLabel.TextTransparency = 0.700
-    end
-
-    MainLabel.Name = GenRandomString()
-    MainLabel.Parent = Frame2
-    MainLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    MainLabel.BackgroundTransparency = 1.000
-    MainLabel.Position = UDim2.new(0, 0, 0.0190476198, 0)
-    MainLabel.Size = UDim2.new(0, 371, 0, 50)
-    MainLabel.Font = Enum.Font.Gotham
-    MainLabel.Text = tostring(Title)
-    MainLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    MainLabel.TextScaled = true
-    MainLabel.TextSize = 14.000
-    MainLabel.TextStrokeTransparency = 0.500
-    MainLabel.TextWrapped = true
-
-    Exit.Name = GenRandomString()
-    Exit.Parent = Frame2
-    Exit.BackgroundColor3 = Color3.fromRGB(33, 0, 0)
-    Exit.BorderSizePixel = 0
-    Exit.Position = UDim2.new(0.90296495, 0, 0, 0)
-    Exit.Size = UDim2.new(0, 36, 0, 30)
-    Exit.Font = Enum.Font.Gotham
-    Exit.Text = "X"
-    Exit.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Exit.TextScaled = true
-    Exit.TextSize = 14.000
-    Exit.TextTransparency = 0.700
-    Exit.TextWrapped = true
-
-    UICorner_5.Parent = Exit
-    
-    Redeem.Name = GenRandomString()
-    Redeem.Parent = Frame2
-    Redeem.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-    Redeem.BorderSizePixel = 0
-    Redeem.Position = UDim2.new(0.202156335, 0, 0.69206351, 0)
-    Redeem.Size = UDim2.new(0, 219, 0, 30)
-    Redeem.Font = Enum.Font.Gotham
-    Redeem.Text = "Enter Key"
-    Redeem.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Redeem.TextScaled = true
-    Redeem.TextSize = 14.000
-    Redeem.TextTransparency = 0.700
-    Redeem.TextWrapped = true
-
-    UICorner_3.Parent = Redeem
-
-    if KeyUrl and setclipboard then
-        local CopyLink = Instance.new("TextButton")
-        CopyLink.Name = GenRandomString()
-        CopyLink.Parent = Frame2
-        CopyLink.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-        CopyLink.BorderSizePixel = 0
-        CopyLink.Position = UDim2.new(0.202156335, 0, 0.812698424, 0)
-        CopyLink.Size = UDim2.new(0, 219, 0, 30)
-        CopyLink.Font = Enum.Font.Gotham
-        CopyLink.Text = "Get Key"
-        CopyLink.TextColor3 = Color3.fromRGB(255, 255, 255)
-        CopyLink.TextScaled = true
-        CopyLink.TextSize = 14.000
-        CopyLink.TextTransparency = 0.700
-        CopyLink.TextWrapped = true
-
-        UICorner_4.Parent = CopyLink
-
-        CopyLink.MouseButton1Click:Connect(function()
-            setclipboard(tostring(KeyUrl))
-        end)
-    end
-
-    Redeem.MouseButton1Click:Connect(function()
-        if Key.Text == KeyShit then
-            LoadFunction()
-            CorrectKey​Source()
-            task.wait()
-            KeySystem:Destroy()
-        else
-            InCorrectKey()
-        end
-    end)
-
-    Exit.MouseButton1Click:Connect(function()
-        task.wait()
-        KeySystem:Destroy()
-    end)
-
-    dragify(Frame2)
-end
-
-return Lib;
+VMCall("LOL!473O0003083O00496E7374616E63652O033O006E657703093O005363722O656E47756903053O004672616D6503083O005549436F726E657203073O0054657874426F7803093O00546578744C6162656C030A3O005465787442752O746F6E03063O00506172656E7403043O0067616D6503073O00436F726547756903043O004E616D6503063O004163746976652O0103103O004261636B67726F756E64436F6C6F723303063O00436F6C6F723303073O0066726F6D524742025O00802O4003083O00506F736974696F6E03053O005544696D320229CD32005E23D53F028O0002AC3E40BF3B2ECE3F03043O0053697A65025O00307740025O00B073402O033O004B6579025O00804640030F3O00426F7264657253697A65506978656C0286F79040E0999B3F020FD26A808662DA3F025O00E07540025O00804B4003043O00466F6E7403043O00456E756D030A3O00536F7572636553616E7303043O0054657874030F3O005061737465204B6579204865726521030A3O0054657874436F6C6F7233025O00E06F4003083O005465787453697A65026O002C4003103O00546578745472616E73706172656E6379026O00E03F030B3O00546578745772612O70656403163O004261636B67726F756E645472616E73706172656E6379026O00F03F02B8396E203881933F026O00494003063O00476F7468616D03173O00447261676F6E20487562202D204B65792053797374656D030A3O00546578745363616C656403163O00546578745374726F6B655472616E73706172656E63790295E535C016E5EC3F026O004240026O003E4003013O0058026O66E63F02498AC03F42E0C93F021B8FC65F6225E63F025O00606B4003093O00456E746572204B657903083O00436F70794C696E6B025BE71220A001EA3F03073O00476574204B657903113O004D6F75736542752O746F6E31436C69636B03073O00436F2O6E65637403203O003438323864623930633632333464653661373931626336623139306638653561025O00409240025O002OA840030C3O009O2E3O2E003A012O0012273O00013O0020015O0002001222000100034O00293O00020002001227000100013O002001000100010002001222000200044O0029000100020002001227000200013O002001000200020002001222000300054O0029000200020002001227000300013O002001000300030002001222000400064O0029000300020002001227000400013O002001000400040002001222000500054O0029000400020002001227000500013O002001000500050002001222000600074O0029000500020002001227000600013O002001000600060002001222000700084O0029000600020002001227000700013O002001000700070002001222000800054O0029000700020002001227000800013O002001000800080002001222000900084O0029000800020002001227000900013O002001000900090002001222000A00054O0029000900020002001227000A00013O002001000A000A0002001222000B00084O0029000A00020002001227000B00013O002001000B000B0002001222000C00054O0029000B00020002001227000C000A3O002001000C000C000B0010123O0009000C0030180001000C0004001012000100093O0030180001000D000E001227000C00103O002001000C000C0011001222000D00123O001222000E00123O001222000F00124O000E000C000F00020010120001000F000C001227000C00143O002001000C000C0002001222000D00153O001222000E00163O001222000F00173O001222001000164O000E000C0010000200101200010013000C001227000C00143O002001000C000C0002001222000D00163O001222000E00193O001222000F00163O0012220010001A4O000E000C0010000200101200010018000C0010120002000900010030180003000C001B001012000300090001001227000C00103O002001000C000C0011001222000D001C3O001222000E001C3O001222000F001C4O000E000C000F00020010120003000F000C0030180003001D0016001227000C00143O002001000C000C0002001222000D001E3O001222000E00163O001222000F001F3O001222001000164O000E000C0010000200101200030013000C001227000C00143O002001000C000C0002001222000D00163O001222000E00203O001222000F00163O001222001000214O000E000C0010000200101200030018000C001227000C00233O002001000C000C0022002001000C000C002400101200030022000C003018000300250026001227000C00103O002001000C000C0011001222000D00283O001222000E00283O001222000F00284O000E000C000F000200101200030027000C00301800030029002A0030180003002B002C0030180003002D000E0010120004000900030030180005000C0007001012000500090001001227000C00103O002001000C000C0011001222000D00283O001222000E00283O001222000F00284O000E000C000F00020010120005000F000C0030180005002E002F001227000C00143O002001000C000C0002001222000D00163O001222000E00163O001222000F00303O001222001000164O000E000C0010000200101200050013000C001227000C00143O002001000C000C0002001222000D00163O001222000E00193O001222000F00163O001222001000314O000E000C0010000200101200050018000C001227000C00233O002001000C000C0022002001000C000C003200101200050022000C003018000500250033001227000C00103O002001000C000C0011001222000D00283O001222000E00283O001222000F00284O000E000C000F000200101200050027000C00301800050034000E00301800050029002A00301800050035002C0030180005002D000E0030180006000C0008001012000600090001001227000C00103O002001000C000C0011001222000D00123O001222000E00163O001222000F00164O000E000C000F00020010120006000F000C0030180006001D0016001227000C00143O002001000C000C0002001222000D00363O001222000E00163O001222000F00163O001222001000164O000E000C0010000200101200060013000C001227000C00143O002001000C000C0002001222000D00163O001222000E00373O001222000F00163O001222001000384O000E000C0010000200101200060018000C001227000C00233O002001000C000C0022002001000C000C003200101200060022000C003018000600250039001227000C00103O002001000C000C0011001222000D00283O001222000E00283O001222000F00284O000E000C000F000200101200060027000C00301800060034000E00301800060029002A0030180006002B003A0030180006002D000E0010120007000900060030180008000C0008001012000800090001001227000C00103O002001000C000C0011001222000D001C3O001222000E001C3O001222000F001C4O000E000C000F00020010120008000F000C0030180008001D0016001227000C00143O002001000C000C0002001222000D003B3O001222000E00163O001222000F003C3O001222001000164O000E000C0010000200101200080013000C001227000C00143O002001000C000C0002001222000D00163O001222000E003D3O001222000F00163O001222001000384O000E000C0010000200101200080018000C001227000C00233O002001000C000C0022002001000C000C003200101200080022000C00301800080025003E001227000C00103O002001000C000C0011001222000D00283O001222000E00283O001222000F00284O000E000C000F000200101200080027000C00301800080034000E00301800080029002A0030180008002B003A0030180008002D000E001012000900090008003018000A000C003F001012000A00090001001227000C00103O002001000C000C0011001222000D001C3O001222000E001C3O001222000F001C4O000E000C000F0002001012000A000F000C003018000A001D0016001227000C00143O002001000C000C0002001222000D003B3O001222000E00163O001222000F00403O001222001000164O000E000C00100002001012000A0013000C001227000C00143O002001000C000C0002001222000D00163O001222000E003D3O001222000F00163O001222001000384O000E000C00100002001012000A0018000C001227000C00233O002001000C000C0022002001000C000C0032001012000A0022000C003018000A00250041001227000C00103O002001000C000C0011001222000D00283O001222000E00283O001222000F00284O000E000C000F0002001012000A0027000C003018000A0034000E003018000A0029002A003018000A002B003A003018000A002D000E001012000B0009000A002001000C000A004200200B000C000C0043000613000E3O000100012O00113O00034O000C000C000E0001002001000C0008004200200B000C000C0043000613000E0001000100022O00113O00034O00113O00014O000C000C000E0001002001000C0006004200200B000C000C0043000613000E0002000100012O00113O00014O000C000C000E0001002001000C00030025002619000C00382O01004400041E3O00382O01002E25004600392O01004500041E3O00392O010030180003002500472O002A3O00013O00033O00033O00030C3O00736574636C6970626F617264035D3O00682O7470733A2O2F36343833383962312D323134302D346631332D623065642D37302O3831303461333665642E7079736372697074612O70732E636F6D2F6B65792D73797374656D2D636865636B706F696E742D312F6C61746573742F03043O005465787400063O0012273O00013O001222000100024O000F3O000200012O00167O0030183O000300022O002A3O00017O001B3O0003043O005465787403203O003438323864623930633632333464653661373931626336623139306638653561025O00F1B140025O00E0A440030A3O006C6F6164737472696E6703043O0067616D6503073O00482O747047657403423O00682O7470733A2O2F7261772E67697468756275736572636F6E74656E742E636F6D2F426F6375734C756B652F55492F6D61696E2F5354582F4D6F64756C652E4C7561034A3O00682O7470733A2O2F7261772E67697468756275736572636F6E74656E742E636F6D2F456A2O646A6469646A646E666A726972666A2F4E6F74696669636174696F6E2F6D61696E2F49444B03063O004E6F7469667903053O005469746C65030A3O004B45592053595354454D030B3O004465736372697074696F6E03303O004B657920697320636F2O726563742120506C65617365207761697420612073656320666F722053637269707420487562030C3O004F75746C696E65436F6C6F7203063O00436F6C6F723303073O0066726F6D524742025O00E06F40026O00144003043O0054696D6503043O005479706503073O0064656661756C7403073O0056697369626C65010003043O0077616974027O004003603O00682O7470733A2O2F7261772E67697468756275736572636F6E74656E742E636F6D2F456A2O646A6469646A646E666A726972666A2F447261676F6E2D582D4875622D536F757263652F6D61696E2F4E65772D56657274696F6E2F536F7572636500304O00167O0020015O00010026193O00060001000200041E3O00060001002E1F0003002F0001000400041E3O002F00010012273O00053O001227000100063O00200B000100010007001222000300084O0009000100034O00065O00022O00053O000100010012273O00053O001227000100063O00200B000100010007001222000300094O0009000100034O00065O00022O00103O0001000200200B00013O000A4O00033O00020030180003000B000C0030180003000D000E4O00043O0003001227000500103O002001000500050011001222000600123O001222000700133O001222000800134O000E0005000800020010120004000F00050030180004001400130030180004001500162O000C0001000400012O0016000100013O003018000100170018001227000100193O0012220002001A4O000F000100020001001227000100053O001227000200063O00200B0002000200070012220004001B4O0009000200044O000600013O00022O00050001000100012O002A3O00017O00033O0003073O0056697369626C65010003073O004672616D655F3200054O00167O0030183O000100020012273O00033O0030183O000100022O002A3O00017O00", GetFEnv(), ...);
